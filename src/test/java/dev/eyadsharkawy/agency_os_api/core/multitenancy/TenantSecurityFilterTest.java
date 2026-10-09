@@ -14,6 +14,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -56,21 +58,12 @@ class TenantSecurityFilterTest {
     SecurityContextHolder.clearContext();
   }
 
-  @Test
-  @DisplayName("Should bypass filter for public API endpoints")
-  void testPublicApiBypass() throws ServletException, IOException {
-    request.setRequestURI("/api/v1/public/login");
-
-    tenantSecurityFilter.doFilter(request, response, filterChain);
-
-    verify(filterChain, times(1)).doFilter(request, response);
-    assertThat(TenantContextHolder.getTenantId()).isNull();
-  }
-
-  @Test
-  @DisplayName("Should bypass filter for global endpoints")
-  void testGlobalEndpointBypass() throws ServletException, IOException {
-    request.setRequestURI("/api/v1/workspaces");
+  @ParameterizedTest
+  @ValueSource(strings = {"/api/v1/public/login", "/api/v1/workspaces", "/api/v1/users/me"})
+  @DisplayName("Should bypass filter for public and global endpoints")
+  void testBypassFilterForPublicAndGlobalEndpoints(String uri)
+      throws ServletException, IOException {
+    request.setRequestURI(uri);
 
     tenantSecurityFilter.doFilter(request, response, filterChain);
 
