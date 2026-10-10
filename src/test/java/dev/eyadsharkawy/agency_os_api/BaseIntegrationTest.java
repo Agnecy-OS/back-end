@@ -18,7 +18,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
     webEnvironment = SpringBootTest.WebEnvironment.MOCK,
     properties = {
       "spring.flyway.clean-disabled=false",
-      "spring.flyway.ignore-migration-patterns=*:*"
+      "spring.flyway.ignore-migration-patterns=*:*",
+      "app.demo.reset.on-startup=false"
     })
 @Import(BaseIntegrationTest.TestSecurityConfig.class)
 public abstract class BaseIntegrationTest {

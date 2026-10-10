@@ -36,6 +36,7 @@ public class SecurityConfig {
             auth ->
                 auth.requestMatchers(
                         "/api/public/**",
+                        "/api/v1/public/**",
                         "/error",
                         "/ws-timer/**",
                         "/v3/api-docs/**",
