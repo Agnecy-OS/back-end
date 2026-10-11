@@ -14,9 +14,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class InvoicePdfGeneratorTest {
 
@@ -50,60 +54,33 @@ class InvoicePdfGeneratorTest {
     project2.setBillingRate(new BigDecimal("120.00"));
   }
 
-  @Test
-  @DisplayName("generate should produce valid PDF byte array for single project entries")
-  void generate_SingleProject_Success() throws IOException {
-    Task task = new Task();
-    task.setId(UUID.randomUUID());
-    task.setTitle("Setup Architecture");
-    task.setProject(project1);
-
-    TimeEntry entry = new TimeEntry();
-    entry.setId(UUID.randomUUID());
-    entry.setTask(task);
-    entry.setDurationMinutes(120);
-
-    byte[] pdf =
-        InvoicePdfGenerator.generate(invoice, "Acme Agency", "contact@acme.com", List.of(entry));
-
-    assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
+  static Stream<Arguments> entryScenarios() {
+    return Stream.of(
+        Arguments.of("Single project entry", 1, 120),
+        Arguments.of("Multiple project entries", 2, 60),
+        Arguments.of("Empty entries fallback", 0, 0),
+        Arguments.of("Small 1-minute duration entry", 1, 1));
   }
 
-  @Test
-  @DisplayName("generate should handle multiple projects correctly")
-  void generate_MultipleProjects_Success() throws IOException {
-    Task task1 = new Task();
-    task1.setId(UUID.randomUUID());
-    task1.setTitle("Task 1");
-    task1.setProject(project1);
+  @ParameterizedTest(name = "generate should produce valid PDF for {0}")
+  @MethodSource("entryScenarios")
+  void generate_VariousEntryScenarios_Success(String scenario, int count, int duration)
+      throws IOException {
+    List<TimeEntry> entries = new ArrayList<>();
+    for (int i = 0; i < count; i++) {
+      Task task = new Task();
+      task.setId(UUID.randomUUID());
+      task.setTitle("Task #" + i);
+      task.setProject(i % 2 == 0 ? project1 : project2);
 
-    TimeEntry entry1 = new TimeEntry();
-    entry1.setId(UUID.randomUUID());
-    entry1.setTask(task1);
-    entry1.setDurationMinutes(60);
+      TimeEntry entry = new TimeEntry();
+      entry.setId(UUID.randomUUID());
+      entry.setTask(task);
+      entry.setDurationMinutes(duration);
+      entries.add(entry);
+    }
 
-    Task task2 = new Task();
-    task2.setId(UUID.randomUUID());
-    task2.setTitle("Task 2");
-    task2.setProject(project2);
-
-    TimeEntry entry2 = new TimeEntry();
-    entry2.setId(UUID.randomUUID());
-    entry2.setTask(task2);
-    entry2.setDurationMinutes(180);
-
-    byte[] pdf =
-        InvoicePdfGenerator.generate(
-            invoice, "Acme Agency", "contact@acme.com", List.of(entry1, entry2));
-
-    assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
-  }
-
-  @Test
-  @DisplayName("generate should fallback when billedEntries is empty or null")
-  void generate_EmptyBilledEntries_Fallback() throws IOException {
-    byte[] pdf =
-        InvoicePdfGenerator.generate(invoice, "Acme Agency", "contact@acme.com", List.of());
+    byte[] pdf = InvoicePdfGenerator.generate(invoice, "Acme Agency", "contact@acme.com", entries);
 
     assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
   }
@@ -131,25 +108,6 @@ class InvoicePdfGeneratorTest {
   }
 
   @Test
-  @DisplayName("generate should handle small duration entries like 1 minute without error")
-  void generate_SmallDurationEntry_Success() throws IOException {
-    Task task = new Task();
-    task.setId(UUID.randomUUID());
-    task.setTitle("Quick Bug Fix");
-    task.setProject(project1);
-
-    TimeEntry entry = new TimeEntry();
-    entry.setId(UUID.randomUUID());
-    entry.setTask(task);
-    entry.setDurationMinutes(1);
-
-    byte[] pdf =
-        InvoicePdfGenerator.generate(invoice, "Acme Agency", "contact@acme.com", List.of(entry));
-
-    assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
-  }
-
-  @Test
   @DisplayName("formatDuration should smartly format minutes into clear readable strings")
   void formatDuration_AllCases() {
     assertThat(InvoicePdfGenerator.formatDuration(0)).isEqualTo("0 mins");
@@ -164,5 +122,63 @@ class InvoicePdfGeneratorTest {
     assertThat(InvoicePdfGenerator.formatDuration(120)).isEqualTo("2 hrs");
     assertThat(InvoicePdfGenerator.formatDuration(121)).isEqualTo("2 hrs 1 min");
     assertThat(InvoicePdfGenerator.formatDuration(135)).isEqualTo("2 hrs 15 mins");
+  }
+
+  @Test
+  @DisplayName("generate should produce valid PDF when text contains Arabic and special characters")
+  void generate_WithArabicAndSpecialCharacters_Success() throws IOException {
+    client.setName("شركة الأهرام للتقنية");
+    project1.setName("منظومة الخدمات السحابية");
+
+    Task task = new Task();
+    task.setId(UUID.randomUUID());
+    task.setTitle("تصميم واجهة المستخدم وتطوير الواجهة الخلفية");
+    task.setProject(project1);
+
+    TimeEntry entry = new TimeEntry();
+    entry.setId(UUID.randomUUID());
+    entry.setTask(task);
+    entry.setDurationMinutes(90);
+
+    byte[] pdf =
+        InvoicePdfGenerator.generate(
+            invoice, "وكالة الإبداع الرقمي", "contact@agency.com", List.of(entry));
+
+    assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
+  }
+
+  @Test
+  @DisplayName("generate should wrap long task titles across multiple lines without overflow error")
+  void generate_WithLongTaskTitle_WrapsAndSucceeds() throws IOException {
+    Task task = new Task();
+    task.setId(UUID.randomUUID());
+    task.setTitle(
+        "This is an extremely long task description that should break across multiple lines in the Activity column instead of overflowing into the Rate or Amount column. It includes details about deployment, unit tests, end to end tests, and documentation.");
+    task.setProject(project1);
+
+    TimeEntry entry = new TimeEntry();
+    entry.setId(UUID.randomUUID());
+    entry.setTask(task);
+    entry.setDurationMinutes(150);
+
+    byte[] pdf =
+        InvoicePdfGenerator.generate(invoice, "Acme Agency", "contact@acme.com", List.of(entry));
+
+    assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
+  }
+
+  @Test
+  @DisplayName("wrapText should break long lines into chunks within max width")
+  void wrapText_SplitsIntoMultipleLines() throws Exception {
+    try (org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
+      try (java.io.InputStream is = getClass().getResourceAsStream("/fonts/Amiri-Regular.ttf")) {
+        org.apache.pdfbox.pdmodel.font.PDType0Font font =
+            org.apache.pdfbox.pdmodel.font.PDType0Font.load(doc, is);
+        String longText =
+            "This is a long activity line that should be wrapped into multiple lines properly because it exceeds the max allowed column width";
+        List<String> wrapped = InvoicePdfGenerator.wrapText(longText, font, 10, 150f);
+        assertThat(wrapped).hasSizeGreaterThan(1);
+      }
+    }
   }
 }
