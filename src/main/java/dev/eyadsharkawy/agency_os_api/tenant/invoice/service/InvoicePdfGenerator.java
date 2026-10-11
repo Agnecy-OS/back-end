@@ -1,5 +1,7 @@
 package dev.eyadsharkawy.agency_os_api.tenant.invoice.service;
 
+import com.ibm.icu.text.ArabicShaping;
+import com.ibm.icu.text.Bidi;
 import dev.eyadsharkawy.agency_os_api.tenant.invoice.entity.Invoice;
 import dev.eyadsharkawy.agency_os_api.tenant.time_entry.entity.TimeEntry;
 import java.io.ByteArrayOutputStream;
@@ -266,45 +268,29 @@ public class InvoicePdfGenerator {
     float yPosition = 465f;
     float activityMaxWidth = 330f;
     float lineSpacing = 13f;
+    PDPageContentStream[] streamHolder = new PDPageContentStream[] {contentStream};
 
-    for (TimeEntry entry : billedEntries) {
-      BigDecimal hours =
-          BigDecimal.valueOf(entry.getDurationMinutes())
-              .divide(BigDecimal.valueOf(60.0), 4, RoundingMode.HALF_UP);
-      BigDecimal billingRate =
-          entry.getTask().getProject().getBillingRate() != null
-              ? entry.getTask().getProject().getBillingRate()
-              : BigDecimal.ZERO;
-      BigDecimal entryCost = hours.multiply(billingRate).setScale(2, RoundingMode.HALF_UP);
-
-      String projectNameVal = entry.getTask().getProject().getName();
-      String taskTitleVal = entry.getTask().getTitle();
-      String itemDesc =
-          String.format(
-              "%s - %s (%s)",
-              projectNameVal, taskTitleVal, formatDuration(entry.getDurationMinutes()));
-
-      List<String> descLines = wrapText(itemDesc, fonts.standard(), 10, activityMaxWidth);
-      if (descLines.isEmpty()) {
-        descLines = List.of(safeText(itemDesc, fonts.standard()));
+    if (billedEntries == null || billedEntries.isEmpty()) {
+      String fallbackDesc = "General Billing - Services Rendered";
+      List<String> descLines = wrapText(fallbackDesc, fonts.standard(), 10, activityMaxWidth);
+      drawTableRow(
+          streamHolder[0],
+          fonts,
+          descLines,
+          null,
+          invoice.getTotalAmount(),
+          yPosition,
+          lineSpacing);
+      yPosition -= Math.max(20f, (descLines.size() * lineSpacing) + 6f);
+    } else {
+      for (TimeEntry entry : billedEntries) {
+        yPosition =
+            renderEntryRow(
+                document, streamHolder, fonts, entry, yPosition, lineSpacing, activityMaxWidth);
       }
-
-      float rowHeight = Math.max(20f, (descLines.size() * lineSpacing) + 6f);
-
-      if (yPosition - rowHeight < 80) {
-        contentStream.close();
-        PDPage newPage = new PDPage();
-        document.addPage(newPage);
-        contentStream = new PDPageContentStream(document, newPage);
-        drawTopBrandBand(contentStream);
-        drawTableHeaders(contentStream, fonts, 730f);
-        yPosition = 700f;
-      }
-
-      drawTableRow(contentStream, fonts, descLines, billingRate, entryCost, yPosition, lineSpacing);
-      yPosition -= rowHeight;
     }
 
+    contentStream = streamHolder[0];
     contentStream.setLineWidth(0.8f);
     contentStream.setStrokingColor(230 / 255f, 230 / 255f, 230 / 255f);
     contentStream.moveTo(50, yPosition + 4f);
@@ -322,6 +308,59 @@ public class InvoicePdfGenerator {
 
     drawTermsAndFooter(contentStream, fonts, invoice.getTotalAmount(), yPosition);
     return contentStream;
+  }
+
+  private static float renderEntryRow(
+      PDDocument document,
+      PDPageContentStream[] streamHolder,
+      InvoiceFonts fonts,
+      TimeEntry entry,
+      float yPosition,
+      float lineSpacing,
+      float activityMaxWidth)
+      throws IOException {
+    BigDecimal hours =
+        BigDecimal.valueOf(entry.getDurationMinutes())
+            .divide(BigDecimal.valueOf(60.0), 4, RoundingMode.HALF_UP);
+    BigDecimal billingRate =
+        (entry.getTask() != null
+                && entry.getTask().getProject() != null
+                && entry.getTask().getProject().getBillingRate() != null)
+            ? entry.getTask().getProject().getBillingRate()
+            : BigDecimal.ZERO;
+    BigDecimal entryCost = hours.multiply(billingRate).setScale(2, RoundingMode.HALF_UP);
+
+    String projectNameVal =
+        (entry.getTask() != null && entry.getTask().getProject() != null)
+            ? entry.getTask().getProject().getName()
+            : "General";
+    String taskTitleVal =
+        (entry.getTask() != null && entry.getTask().getTitle() != null)
+            ? entry.getTask().getTitle()
+            : "Task";
+    String itemDesc =
+        String.format(
+            "%s - %s (%s)",
+            projectNameVal, taskTitleVal, formatDuration(entry.getDurationMinutes()));
+
+    List<String> descLines = wrapText(itemDesc, fonts.standard(), 10, activityMaxWidth);
+    if (descLines.isEmpty()) {
+      descLines = List.of(safeText(itemDesc, fonts.standard()));
+    }
+
+    float rowHeight = Math.max(20f, (descLines.size() * lineSpacing) + 6f);
+    if (yPosition - rowHeight < 80) {
+      streamHolder[0].close();
+      PDPage newPage = new PDPage();
+      document.addPage(newPage);
+      streamHolder[0] = new PDPageContentStream(document, newPage);
+      drawTopBrandBand(streamHolder[0]);
+      drawTableHeaders(streamHolder[0], fonts, 730f);
+      yPosition = 700f;
+    }
+
+    drawTableRow(streamHolder[0], fonts, descLines, billingRate, entryCost, yPosition, lineSpacing);
+    return yPosition - rowHeight;
   }
 
   private static void drawTableRow(
@@ -344,18 +383,20 @@ public class InvoicePdfGenerator {
       textY -= lineSpacing;
     }
 
+    String rateStr = billingRate != null ? "$" + billingRate.setScale(2).toString() : "-";
     contentStream.beginText();
     contentStream.setFont(fonts.standard(), 10);
     contentStream.setNonStrokingColor(0, 0, 0);
     contentStream.newLineAtOffset(390, yPosition);
-    contentStream.showText(safeText("$" + billingRate.setScale(2).toString(), fonts.standard()));
+    contentStream.showText(safeText(rateStr, fonts.standard()));
     contentStream.endText();
 
+    String amountStr = entryCost != null ? "$" + entryCost.setScale(2).toString() : "$0.00";
     contentStream.beginText();
     contentStream.setFont(fonts.standard(), 10);
     contentStream.setNonStrokingColor(0, 0, 0);
     contentStream.newLineAtOffset(480, yPosition);
-    contentStream.showText(safeText("$" + entryCost.setScale(2).toString(), fonts.standard()));
+    contentStream.showText(safeText(amountStr, fonts.standard()));
     contentStream.endText();
   }
 
@@ -416,7 +457,7 @@ public class InvoicePdfGenerator {
         "%d hr%s %d min%s", hours, hours > 1 ? "s" : "", remMinutes, remMinutes > 1 ? "s" : "");
   }
 
-  static String safeText(String text, PDFont font) {
+  private static String cleanControlChars(String text) {
     if (text == null) {
       return "";
     }
@@ -426,8 +467,38 @@ public class InvoicePdfGenerator {
             codePoint -> {
               if (codePoint == '\r' || codePoint == '\n' || Character.isISOControl(codePoint)) {
                 sb.append(' ');
-                return;
+              } else {
+                sb.appendCodePoint(codePoint);
               }
+            });
+    return sb.toString();
+  }
+
+  static String processBidi(String text) {
+    if (text == null || text.isBlank()) {
+      return text == null ? "" : text;
+    }
+    try {
+      ArabicShaping shaper = new ArabicShaping(ArabicShaping.LETTERS_SHAPE);
+      String shaped = shaper.shape(text);
+      Bidi bidi = new Bidi(shaped, Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT);
+      bidi.setReorderingMode(Bidi.REORDER_DEFAULT);
+      return bidi.writeReordered(Bidi.DO_MIRRORING);
+    } catch (Exception e) {
+      return text;
+    }
+  }
+
+  static String safeText(String text, PDFont font) {
+    if (text == null) {
+      return "";
+    }
+    String bidiText = processBidi(cleanControlChars(text));
+    StringBuilder sb = new StringBuilder();
+    bidiText
+        .codePoints()
+        .forEach(
+            codePoint -> {
               String charStr = new String(Character.toChars(codePoint));
               try {
                 font.encode(charStr);
@@ -449,13 +520,13 @@ public class InvoicePdfGenerator {
 
   static List<String> wrapText(String text, PDFont font, float fontSize, float maxWidth) {
     List<String> lines = new ArrayList<>();
-    String safe = safeText(text, font);
-    if (safe.isBlank()) {
+    String cleaned = cleanControlChars(text);
+    if (cleaned.isBlank()) {
       return lines;
     }
 
     StringBuilder currentLine = new StringBuilder();
-    for (String word : safe.split("\\s+")) {
+    for (String word : cleaned.split("\\s+")) {
       if (word.isEmpty()) {
         continue;
       }
@@ -463,7 +534,7 @@ public class InvoicePdfGenerator {
     }
 
     if (!currentLine.isEmpty()) {
-      lines.add(currentLine.toString());
+      lines.add(safeText(currentLine.toString(), font));
     }
 
     return lines;
@@ -477,15 +548,15 @@ public class InvoicePdfGenerator {
       float fontSize,
       float maxWidth) {
     String testLine = currentLine.isEmpty() ? word : currentLine + " " + word;
-    if (getTextWidth(testLine, font, fontSize) <= maxWidth) {
+    if (getTextWidth(safeText(testLine, font), font, fontSize) <= maxWidth) {
       currentLine.setLength(0);
       currentLine.append(testLine);
     } else {
       if (!currentLine.isEmpty()) {
-        lines.add(currentLine.toString());
+        lines.add(safeText(currentLine.toString(), font));
         currentLine.setLength(0);
       }
-      if (getTextWidth(word, font, fontSize) > maxWidth) {
+      if (getTextWidth(safeText(word, font), font, fontSize) > maxWidth) {
         splitLongWord(word, currentLine, lines, font, fontSize, maxWidth);
       } else {
         currentLine.append(word);
@@ -501,11 +572,11 @@ public class InvoicePdfGenerator {
       float fontSize,
       float maxWidth) {
     for (char c : word.toCharArray()) {
-      if (getTextWidth(currentLine.toString() + c, font, fontSize) <= maxWidth) {
+      if (getTextWidth(safeText(currentLine.toString() + c, font), font, fontSize) <= maxWidth) {
         currentLine.append(c);
       } else {
         if (!currentLine.isEmpty()) {
-          lines.add(currentLine.toString());
+          lines.add(safeText(currentLine.toString(), font));
           currentLine.setLength(0);
         }
         currentLine.append(c);

@@ -181,4 +181,49 @@ class InvoicePdfGeneratorTest {
       }
     }
   }
+
+  @Test
+  @DisplayName("generate should render fallback line item when billedEntries is empty")
+  void generate_EmptyBilledEntries_RendersFallbackRow() throws IOException {
+    byte[] pdf =
+        InvoicePdfGenerator.generate(invoice, "Acme Agency", "contact@acme.com", List.of());
+    assertThat(pdf).isNotNull().hasSizeGreaterThan(0);
+  }
+
+  @Test
+  @DisplayName("generate should shape Arabic text and reorder BiDi for accurate rendering")
+  void generate_WithArabicShapingAndBidi_RendersAccurately() throws Exception {
+    String englishInput = "Development of user dashboard (45 mins)";
+    String processedEn = InvoicePdfGenerator.processBidi(englishInput);
+    assertThat(processedEn).isEqualTo(englishInput);
+
+    String arabicInput = "حلب الجاموسة - شراء الجاموسة (5 mins)";
+    String processedAr = InvoicePdfGenerator.processBidi(arabicInput);
+    assertThat(processedAr).isNotEqualTo(arabicInput);
+
+    Task task1 = new Task();
+    task1.setId(UUID.randomUUID());
+    task1.setTitle("حلب الجاموسة - شراء الجاموسة");
+    task1.setProject(project1);
+
+    TimeEntry entry1 = new TimeEntry();
+    entry1.setId(UUID.randomUUID());
+    entry1.setTask(task1);
+    entry1.setDurationMinutes(5);
+
+    Task task2 = new Task();
+    task2.setId(UUID.randomUUID());
+    task2.setTitle("حلب الجاموسة - شراء الجاموسة");
+    task2.setProject(project1);
+
+    TimeEntry entry2 = new TimeEntry();
+    entry2.setId(UUID.randomUUID());
+    entry2.setTask(task2);
+    entry2.setDurationMinutes(296); // 4 hrs 56 mins
+
+    byte[] invoicePdf =
+        InvoicePdfGenerator.generate(
+            invoice, "مزرعة البركة", "contact@baraka.com", List.of(entry1, entry2));
+    assertThat(invoicePdf).isNotNull().hasSizeGreaterThan(0);
+  }
 }
