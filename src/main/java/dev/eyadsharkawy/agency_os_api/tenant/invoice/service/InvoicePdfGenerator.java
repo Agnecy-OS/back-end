@@ -520,6 +520,9 @@ public class InvoicePdfGenerator {
 
   static List<String> wrapText(String text, PDFont font, float fontSize, float maxWidth) {
     List<String> lines = new ArrayList<>();
+    if (text == null || font == null) {
+      return lines;
+    }
     String cleaned = cleanControlChars(text);
     if (cleaned.isBlank()) {
       return lines;
@@ -547,6 +550,9 @@ public class InvoicePdfGenerator {
       PDFont font,
       float fontSize,
       float maxWidth) {
+    if (word == null || word.isEmpty()) {
+      return;
+    }
     String testLine = currentLine.isEmpty() ? word : currentLine + " " + word;
     if (getTextWidth(safeText(testLine, font), font, fontSize) <= maxWidth) {
       currentLine.setLength(0);
@@ -571,6 +577,9 @@ public class InvoicePdfGenerator {
       PDFont font,
       float fontSize,
       float maxWidth) {
+    if (word == null || word.isEmpty()) {
+      return;
+    }
     for (char c : word.toCharArray()) {
       if (getTextWidth(safeText(currentLine.toString() + c, font), font, fontSize) <= maxWidth) {
         currentLine.append(c);
